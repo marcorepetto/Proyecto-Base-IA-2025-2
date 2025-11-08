@@ -2,21 +2,22 @@
 #include "model.h"
 #include <iostream>
 #include <random>
-
+#include <fstream>
+#include <chrono>
+#include <cstdlib>
 
 int main(int argc, char** argv) {
     // Leer parámetro 
     //      n: cantidad de brushes a generar
     //      filename: imagen objetivo
     //      n_sample_greedy: cantidad de muestras aleatorias por brush
-    //      pixel_threshold: umbral de borde
+    //      : umbral de borde
     //      p: peso de borde respecto a área cubierta
     //      
-    int n = std::stoi(argv[1]);
-    std::string target_filename = argv[2];
+    std::string target_filename = argv[1];
+    int n = std::stoi(argv[2]);
     int n_sample_greedy = std::stoi(argv[3]);
-    float pixel_threshold = std::stof(argv[4]);
-    float p = std::stof(argv[5]);
+    float p = std::stof(argv[4]);
 
     // 1) Cargar brushes desde carpeta
     std::cout << "Cargando brushes...\n";
@@ -35,35 +36,90 @@ int main(int argc, char** argv) {
     std::cout << "Brushes cargados: " << gBrushes.size() << "\n";
     // 2) Crear modelo
     std::cout << "Creando modelo con " << n << " strokes...\n";
-    Model model = Model(n, target_filename, n_sample_greedy, pixel_threshold, p);
+    Model model = Model(n, target_filename, n_sample_greedy, p);
 
-    // 3) Inicializar
-    std::cout << "Inicializando...\n";
+    // 3) Inicialización voraz (timeada)
+    auto start = std::chrono::high_resolution_clock::now();
     model.initialGuess();
-    std::cout << "Inicialización completa.\n";
-    model.render();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "Inicialización voraz completa. Hecho en " << duration / 1000000.0 << " s.\n";
+    // 4) Guardar resultado de inicialización en el archivo output/logs/{model.log_file_name}.txt
+    {
+        // Crear carpeta de logs
+        std::string mkdir_cmd = "mkdir -p output/logs";
+        system(mkdir_cmd.c_str());
 
-    std::cout << "Calculando pérdida inicial...\n";
-    model.current_loss = model.computeLoss();
+        std::string log_path = "output/logs/" + model.log_file_name + ".txt";
+        std::ofstream logf(log_path);
+        if (!logf) {
+            std::cerr << "Error creando log '" << log_path << "'\n";
+        } else {
+            logf << "Model initialization log\n";
+            logf << "========================\n";
+            logf << "Log file name: " << model.log_file_name << "\n";
+            logf << "Target filename: " << target_filename << "\n";
+            logf << "Target name (no ext): " << model.target_name << "\n";
+            logf << "Number of strokes: " << n << "\n";
+            logf << "n_sample_greedy: " << n_sample_greedy << "\n";
+            logf << "p: " << p << "\n";
+            logf << "Initial guess time (s): " << duration / 1000000.0 << "\n";
+            logf << "Initial loss: " << model.current_loss << "\n";
+            logf.close();
+            std::cout << "OK: guardado log " << log_path << "\n";
+        }
+    }
+    
+    // Crear carpeta si no existe
+    std::string command = "mkdir -p output/images";
+    system(command.c_str());
 
-    std::cout << "Pérdida inicial: " << model.current_loss << "\n";
-    std::cout << "Pérdida máxima: " << model.max_loss << "\n";
-    std::cout << "Calidad inicial: " << 1.0 - (model.current_loss / model.max_loss) << "\n";
+    // Add model start time to output filename in format targetname_initialGuess_YYYY-MM-DD_HH:MM:SS.png
+    std::string output_filename = model.log_file_name + " initialGuess.png";
 
-    // 5) Guardar
-
-    // Compose target filename: "n"_"n_sample_greedy"_"pixel_threshold"_"p"_"target_filename"
-    std::string output_filename = 
-        std::to_string(n) + "_" + 
-        std::to_string(n_sample_greedy) + "_" + 
-        std::to_string(int(pixel_threshold * 100)) + "_" +
-        std::to_string(int(p * 100)) + "_" +
-        target_filename;
-
-    if (!savePNG(model.getCurrentCanvas(), "output/" + output_filename)) {
+    if (!savePNG(model.getCurrentCanvas(), "output/images/" + output_filename)) {
         std::cerr << "Error guardando output/" << output_filename << "\n";
         return 1;
     }
     std::cout << "OK: guardado output/" << output_filename << "\n";
+    
+    {
+        std::string log_path = "output/logs/" + model.log_file_name + ".csv";
+        std::ofstream logf(log_path);
+        if (!logf) {
+            std::cerr << "Error creando log '" << log_path << "'\n";
+        } else {
+            logf << "Iteration" << "," 
+                << "Stagnation counter" << "," 
+
+                << "Current Loss" << "," 
+                << "Best Global Loss" << "," 
+                << "Temperature" << "," 
+
+                << "Accepted" << "," 
+                << "Local improvement" << "," 
+                << "Global improvement" << ","
+                << "Stagnated" << "," 
+
+                << "mutateStrokes time" << "," 
+                << "render time" << "," 
+                << "computeLoss time" << "," 
+                << "minimizeColorError time" << "," 
+ 
+                << "Iteration Time" << "\n";
+            logf.close();
+            std::cout << "OK: guardado log " << log_path << "\n";
+        }
+    }
+
+    model.optimizeSimulatedAnnealing(1000);
+
+    output_filename = model.log_file_name + "_finalResult.png";
+    if (!savePNG(model.getCurrentCanvas(), "output/images/" + output_filename)) {
+        std::cerr << "Error guardando output/" << output_filename << "\n";
+        return 1;
+    }
+    std::cout << "OK: guardado output/" << output_filename << "\n";
+
     return 0;
 }

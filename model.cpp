@@ -7,6 +7,7 @@
 #include <string>
 #include <random>
 #include <chrono>
+#include <limits>
 
 #include <Eigen/Dense>
 
@@ -16,18 +17,38 @@ int randInt(int min, int max) {
     std::uniform_int_distribution<int> dist(min, max);
     return dist(rng);
 }
+float randFloat(float min=0.0f, float max = 1.0f) {
+    std::uniform_real_distribution<float> dist(min, max);
+    return dist(rng);
+}
 
-// Model
+const std::string currentDateTime() {
+    time_t     now = time(0);
+    struct tm  tstruct;
+    char       buf[80];
+    tstruct = *localtime(&now);
+    // Visit http://en.cppreference.com/w/cpp/chrono/c/strftime
+    // for more information about the date/time format
+    strftime(buf, sizeof(buf), "%Y-%m-%d %X", &tstruct);
+
+    return buf;
+}
+
+/**
+ * @brief Constructor de la clase Model.
+ * @param n_strokes Número de strokes a utilizar.
+ * @param target_filename Nombre del archivo de la imagen objetivo.
+ * @param n_sample_greedy Número de muestras aleatorias por stroke para la inicialización
+ * @param p Peso del borde respecto al área cubierta en la inicialización.
+ */
 Model::Model(int n_strokes, 
             const std::string& target_filename,
             int n_sample_greedy,
-            float pixel_threshold,
             float p) : 
         currentCanvas(1, 1), 
         targetImage(1, 1), 
         n_strokes(n_strokes),
         n_sample_greedy(n_sample_greedy),
-        pixel_threshold(pixel_threshold),
         p(p) {
 
     // Cargar imagen objetivo (target)
@@ -38,9 +59,19 @@ Model::Model(int n_strokes,
 
     const int canvas_width = targetImage.width;
     const int canvas_height = targetImage.height;
+
+    target_name = target_filename;
+    // Remove extension from target_name
+    size_t lastindex = target_name.find_last_of(".");
+    target_name = target_name.substr(0, lastindex);
     
     // Target image borders
     loadImageGray("borders/" + target_filename, targetImageBorders);
+
+    // multiplicar por 1/255.0f
+    for (size_t i = 0; i < targetImageBorders.gray.size(); ++i) {
+        targetImageBorders.gray[i] *= 0.1f;
+    }
 
     currentCanvas = Canvas(canvas_width, canvas_height);
 
@@ -71,10 +102,40 @@ Model::Model(int n_strokes,
         strokes.push_back(S);
     }
 
-    strokes[0].r = 1.0f; strokes[0].g = 0.0f; strokes[0].b = 0.0f; // rojo
+    /**
+     * Posibles mutaciones:
+     * Mover stroke
+     * Cambiar tamaño
+     * Cambiar rotación
+     * Cambiar tipo de brush
+     * Cambiar color
+     * Cambiar orden de los strokes (mirror)
+     * Cambiar varios atributos a la vez
+     */
 
-    // Render inicial
-    render();
+    mutationWeights = {
+        3.0f, // Mover stroke
+        1.0f, // Cambiar tamaño
+        3.0f, // Cambiar rotación
+        0.5f, // Cambiar tipo de brush
+        0.2f, // Cambiar color
+        0.5f, // Cambiar orden de los strokes (mirror)
+    };
+
+    float totalWeight = 0.0f;
+    for (float w : mutationWeights) totalWeight += w;
+    for (float& w : mutationWeights) w /= totalWeight;
+    for (size_t i = 1; i < mutationWeights.size(); ++i)
+        mutationWeights[i] += mutationWeights[i - 1];
+
+    start_time = currentDateTime();
+    std::cout << "Model initialized. Start time: " << start_time << "\n";
+
+    // Create folder {images,logs}/{target_name}/ if not exists
+    std::string command = "mkdir -p output/{images,logs}/" + target_name + "/" + std::to_string(n_strokes);
+    system(command.c_str());
+
+    log_file_name = target_name + "/" + std::to_string(n_strokes) + "/" + start_time;
 }
 
 Model::~Model() {}
@@ -91,7 +152,7 @@ float Model::computeLoss() {
     return loss;
 }
 
-void Model::render() {
+void Model::render_all() {
     currentCanvas.clear(0, 0, 0);
     Stroke stroke;
     
@@ -132,9 +193,9 @@ void Model::minimizeColorError() {
     b_g.setZero();
     b_b.setZero();
 
-    std::cout << "Construyendo sistema de ecuaciones para mínimos cuadrados...\n";
+    // std::cout << "Construyendo sistema de ecuaciones para mínimos cuadrados...\n";
     for (int y = 0; y < currentCanvas.height; ++y) {
-        std::cout << "  Procesando fila " << y+1 << " de " << currentCanvas.height << "...\n";
+        // std::cout << "  Procesando fila " << y+1 << " de " << currentCanvas.height << "...\n";
         for (int x = 0; x < currentCanvas.width; ++x) {
             // Fill A
             float alpha_accum = 1.0f;
@@ -152,29 +213,29 @@ void Model::minimizeColorError() {
             b_b(y * currentCanvas.width + x) = targetImage.rgb[idx + 2];
         }
     }
-    std::cout << "Sistema construido: A es " << A.rows() << "x" << A.cols() << "\n\nRealizando descomposición QR de A (" << A.rows() << "x" << A.cols() << ")... ";
+    // std::cout << "Sistema construido: A es " << A.rows() << "x" << A.cols() << "\n\nRealizando descomposición QR de A (" << A.rows() << "x" << A.cols() << ")... ";
 
     // QR decomposition to solve for r, g, b. Compute QR = A once and reuse.
-    auto start = std::chrono::high_resolution_clock::now();
+    // auto start = std::chrono::high_resolution_clock::now();
 
     Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A);
 
-    auto end = std::chrono::high_resolution_clock::now();
+    // auto end = std::chrono::high_resolution_clock::now();
     // Save seconds duration
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "hecho en " << duration / 1000000.0 << " s.\n";
+    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    // std::cout << "hecho en " << duration / 1000000.0 << " s.\n";
 
-    std::cout << "Resolviendo para canales R, G, B...\n";
-    start = std::chrono::high_resolution_clock::now();
-    std::cout << "  Canal R... ";
+    // std::cout << "Resolviendo para canales R, G, B...\n";
+    // start = std::chrono::high_resolution_clock::now();
+    // std::cout << "  Canal R... ";
     Eigen::VectorXf x_r = qr.solve(b_r);
-    std::cout << "Listo!\n  Canal G... ";
+    // std::cout << "Listo!\n  Canal G... ";
     Eigen::VectorXf x_g = qr.solve(b_g);
-    std::cout << "Listo!\n  Canal B... ";
+    // std::cout << "Listo!\n  Canal B... ";
     Eigen::VectorXf x_b = qr.solve(b_b);
-    end = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "Listo!\nHecho en " << duration / 1000000.0 << " s.\n";
+    // end = std::chrono::high_resolution_clock::now();
+    // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    // std::cout << "Listo!\nHecho en " << duration / 1000000.0 << " s.\n";
 
     /*
     std::cout << "Matrix A:\n" << A << "\n";
@@ -211,62 +272,412 @@ void Model::minimizeColorError() {
 
 void Model::initialGuess() {
     int n_pixels = currentCanvas.width * currentCanvas.height;
+    const float alpha_structural = 0.98f; // Weight for gradient
+    const float beta_texture = 0.05f;     // Weight for texture
 
+    // 1. Create structural energy map E(x,y)
+    // 1.1 Convert targetImage to grayscale
+    ImageGray targetGray;
+    targetGray.width = targetImage.width;
+    targetGray.height = targetImage.height;
+    targetGray.gray.resize(n_pixels);
+    for (int i = 0; i < n_pixels; ++i) {
+        float r = targetImage.rgb[i*3 + 0];
+        float g = targetImage.rgb[i*3 + 1];
+        float b = targetImage.rgb[i*3 + 2];
+        targetGray.gray[i] = 0.299f * r + 0.587f * g + 0.114f * b;
+    }
+
+    // 1.2 Compute texture map T(x,y) = local variance
+    ImageGray textureMap;
+    textureMap.width = targetImage.width;
+    textureMap.height = targetImage.height;
+    textureMap.gray.resize(n_pixels);
+    const int w_size = 5;
+    const int w_half = w_size / 2;
+    for (int y = 0; y < targetGray.height; ++y) {
+        for (int x = 0; x < targetGray.width; ++x) {
+            float sum = 0;
+            float sum_sq = 0;
+            int count = 0;
+            for (int wy = -w_half; wy <= w_half; ++wy) {
+                for (int wx = -w_half; wx <= w_half; ++wx) {
+                    int cx = x + wx;
+                    int cy = y + wy;
+                    if (cx >= 0 && cx < targetGray.width && cy >= 0 && cy < targetGray.height) {
+                        float val = targetGray.gray[cy * targetGray.width + cx];
+                        sum += val;
+                        sum_sq += val * val;
+                        count++;
+                    }
+                }
+            }
+            if (count > 0) {
+                float mean = sum / count;
+                float variance = (sum_sq / count) - (mean * mean);
+                textureMap.gray[y * targetGray.width + x] = std::sqrt(std::max(0.0f, variance));
+            } else {
+                textureMap.gray[y * targetGray.width + x] = 0.0f;
+            }
+        }
+    }
+    
+    // Normalize texture map
+    float max_texture = 0.0f;
+    for(float val : textureMap.gray) max_texture = std::max(max_texture, val);
+    if (max_texture > 0) {
+        for(float& val : textureMap.gray) val /= max_texture;
+    }
+
+    // Normalize gradient map
+    ImageGray gradientMap = targetImageBorders; // Copy
+    float max_gradient = 0.0f;
+    for(float val : gradientMap.gray) max_gradient = std::max(max_gradient, val);
+    if (max_gradient > 0) {
+        for(float& val : gradientMap.gray) val /= max_gradient;
+    }
+
+    // 1.3 Combine G and T to get E
+    ImageGray energyMap;
+    energyMap.width = targetImage.width;
+    energyMap.height = targetImage.height;
+    energyMap.gray.resize(n_pixels);
+
+    for (int i = 0; i < n_pixels; ++i) {
+        energyMap.gray[i] = alpha_structural * gradientMap.gray[i] + beta_texture * textureMap.gray[i];
+    }
+    // Normalize energyMap
+    float max_energy = 0.0f;
+    for(float val : energyMap.gray) max_energy = std::max(max_energy, val);
+    if (max_energy > 0) {
+        for(float& val : energyMap.gray) val /= max_energy;
+    }
+
+    // Coverage map C(p)
+    std::vector<float> coverageMap(n_pixels, 0.0f);
+
+    // Main loop
     for (int i = 0; i < n_strokes; ++i) {
         Stroke& stroke = strokes[i];
-        float best_score = 1.0f;
+        float best_score = -std::numeric_limits<float>::max();
         Stroke best_stroke = stroke;
-        int uncovered_pixels = 0;
+
         for (int j = 0; j < n_sample_greedy; ++j) {
             stroke.randomize();
-            stroke.draw(currentCanvas);
+            
+            stroke.draw(currentCanvas); // This is needed to compute strokeAlphas
 
-            float score = 0.0f;
-            int pixel_count = 0;
-            int covered_pixels = 0;
+            float gain = 0.0f;
+            float penalty = 0.0f;
+            float sum_a = 0.0f;
 
-            for (int y = 0; y < currentCanvas.height; ++y) {
-                for (int x = 0; x < currentCanvas.width; ++x) {
-                    float a = stroke.strokeAlphas[y * currentCanvas.width + x];
-                    if (a <= 0.0f) {
-                        if (targetImageBorders.gray[y * currentCanvas.width + x] < pixel_threshold) {
-                            uncovered_pixels++;
-                        }
-                        continue;
-                    }
-                    pixel_count++;
-                    int idx = y * currentCanvas.width + x;
-                    covered_pixels += targetImageBorders.gray[idx] > 0.0f ? 1 : 0;
+            for (int p_idx = 0; p_idx < n_pixels; ++p_idx) {
+                float a = stroke.strokeAlphas[p_idx];
+                sum_a += a;
+                if (a > 0.0f) {
+                    gain += a * energyMap.gray[p_idx];
+                    penalty += a * coverageMap[p_idx];
                 }
             }
 
-            float uncovered_ratio = float(uncovered_pixels) / float(n_pixels - pixel_count);
-            float already_covered_ratio = float(covered_pixels) / float(pixel_count);
-            
-            score = (1.0f - p) * uncovered_ratio + p * already_covered_ratio;
+            float score = gain/sum_a - p * penalty; // Use p as lambda
 
-            if (score < best_score) {
+            if (score > best_score) {
                 best_score = score;
                 best_stroke = stroke;
 
-                std::cout << "["<< i+1 << "] ["<< j+1 << "] New best stroke [Score: " << best_score << "]: "
-                        << "x_rel=" << best_stroke.x_rel << ", y_rel=" << best_stroke.y_rel
-                        << ", size_rel=" << best_stroke.size_rel << ", rotation_deg=" << best_stroke.rotation_deg
-                        << ", type=" << best_stroke.type << "\n";
-                
-                continue;
+                if (j % 10 == 0) { // Log less frequently
+                    std::cout << "["<< i+1 << "] ["<< j+1 << "] New best stroke [Score: " << best_score << "]: "
+                            << "gain = " << gain << ", "
+                            << "penalty = " << penalty << "\n";
+                }
             }
-            std::cout << "["<< i+1<< "] ["<< j+1 << "]                 [Score: " << best_score << "]\n";
         }
         stroke = best_stroke;
-        for (int y = 0; y < currentCanvas.height; ++y) {
-            for (int x = 0; x < currentCanvas.width; ++x) {
-                int idx = y * currentCanvas.width + x;
-                targetImageBorders.gray[idx] = stroke.strokeAlphas[idx] > 0.0f ? pixel_threshold : targetImageBorders.gray[idx];
+        float scale_factor = 0.13f;
+        stroke.size_rel = stroke.size_rel + scale_factor > 0.5f ? 0.5f : stroke.size_rel + scale_factor; // Increase size a bit for better coverage
+        stroke.draw(currentCanvas); // Ensure best_stroke alphas are calculated
+
+        // Update energy map and coverage map
+        for (int p_idx = 0; p_idx < n_pixels; ++p_idx) {
+            float a = stroke.strokeAlphas[p_idx];
+            if (a > 0.0f) {
+                energyMap.gray[p_idx] *= (1.0f - a);
+                coverageMap[p_idx] += a;
             }
         }
     }
 
     minimizeColorError();
+    render_all();
+    current_loss = computeLoss();
 }
 
+void Model::optimizeSimulatedAnnealing(int n_iterations) {
+    auto global_start = std::chrono::high_resolution_clock::now();
+    // Simulated annealing variables
+    float current_loss = computeLoss();
+    std::vector<Stroke> prev_strokes;
+    Canvas prev_canvas = currentCanvas;
+
+    // Initial temperature defined by max_loss
+    float T_initial = max_loss;
+    float T_final_control = 300.0f;
+    float T_final_global = 0.1f;
+    float T = T_initial;
+    float alpha = std::pow(T_initial / T_final_control, 1.0f / n_iterations);
+    float beta = std::pow(T_initial / T_final_global, 1.0f / n_iterations);
+
+    // Restart variables
+    float best_global_loss = current_loss;
+    std::vector<Stroke> best_global_strokes = strokes;
+    Canvas best_global_canvas = currentCanvas;
+    int stagnation_counter = 0;
+    const int stagnation_limit = n_iterations / 10;
+    
+    // Logging
+    std::string csv_log_path = "output/logs/" + log_file_name + ".csv";
+    std::ofstream csv_logf(csv_log_path);
+
+    csv_logf << "Iteration" << "," 
+            << "Stagnation counter" << "," 
+
+            << "Current Loss" << "," 
+            << "Best Global Loss" << "," 
+            << "Temperature" << "," 
+
+            << "Accepted" << "," 
+            << "Local improvement" << "," 
+            << "Global improvement" << ","
+            << "Stagnated" << "," 
+
+            << "mutateStrokes time" << "," 
+            << "render time" << "," 
+            << "computeLoss time" << "," 
+            << "minimizeColorError time" << "," 
+
+            << "Iteration Time" << "\n";
+
+    for (int iter = 0; iter < n_iterations; ++iter) {
+        // Logging
+        csv_logf << iter << "," << stagnation_counter << ","
+                 << current_loss << "," << best_global_loss << ","
+                 << T << ",";
+
+        bool local_improvement, global_improvement, stagnated = false;
+
+        uint64_t mutateStrokes_time = 0;
+        uint64_t render_time = 0;
+        uint64_t computeLoss_time = 0;
+        uint64_t minimizeColorError_time = 0;
+
+        auto iteration_start = std::chrono::high_resolution_clock::now();
+
+        // Save current state
+        prev_strokes = strokes;
+        prev_canvas = currentCanvas;
+
+        // Mutate strokes
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string mutation_type = mutateStrokes();
+        auto end = std::chrono::high_resolution_clock::now();
+        mutateStrokes_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+        // Render new canvas
+        start = std::chrono::high_resolution_clock::now();
+        render_all();
+        end = std::chrono::high_resolution_clock::now();
+        render_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+
+        // Compute new loss
+        start = std::chrono::high_resolution_clock::now();
+        float new_loss = computeLoss();
+        end = std::chrono::high_resolution_clock::now();
+        computeLoss_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+
+        // Acceptance probability
+        float delta_loss = current_loss - new_loss;
+        if (delta_loss > 0 || std::exp(delta_loss / T) > randFloat()) {
+            csv_logf << true << ",";
+            local_improvement = (delta_loss > 0);
+
+            // Accept new state
+            current_loss = new_loss;
+
+            // Update best global solution
+            if (current_loss < best_global_loss) {
+                global_improvement = true;
+
+                best_global_loss = current_loss;
+                best_global_strokes = strokes;
+                best_global_canvas = currentCanvas;
+                stagnation_counter = 0;
+            } else {
+                stagnation_counter++;
+            }
+        } else {
+            // Revert to previous state
+            stagnation_counter++;
+            strokes = prev_strokes;
+            currentCanvas = prev_canvas;
+            csv_logf << false << ",";
+        }
+
+        // Update temperature
+        T *= beta;
+
+        // Check for stagnation
+        if (stagnation_counter >= stagnation_limit) {
+            stagnated = true;
+
+            strokes = best_global_strokes;
+            currentCanvas = best_global_canvas;
+
+            start = std::chrono::high_resolution_clock::now();
+            minimizeColorError();
+            end = std::chrono::high_resolution_clock::now();
+            minimizeColorError_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+
+            start = std::chrono::high_resolution_clock::now();
+            render_all();
+            end = std::chrono::high_resolution_clock::now();
+            render_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+
+            start = std::chrono::high_resolution_clock::now();
+            float new_loss = computeLoss();
+            end = std::chrono::high_resolution_clock::now();
+            computeLoss_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+            stagnation_counter = 0;
+
+            T = T_initial * std::pow(alpha, iter); // Reset temperature based on iteration
+            beta = std::pow(T_final_global / T, 1.0f / (n_iterations - iter)); // Adjust beta for remaining iterations
+
+            if (new_loss < current_loss) {
+                current_loss = new_loss;
+
+                local_improvement = true;
+
+                if (current_loss < best_global_loss) {
+                    global_improvement = true;
+
+                    best_global_loss = current_loss;
+                    best_global_strokes = strokes;
+                    best_global_canvas = currentCanvas;
+                }
+            }
+        }
+        
+        auto iteration_end = std::chrono::high_resolution_clock::now();
+        uint64_t iteration_time = std::chrono::duration_cast<std::chrono::microseconds>(iteration_end - iteration_start).count();
+
+        // Logging bools
+        csv_logf << local_improvement << "," 
+                 << global_improvement << "," 
+                 << stagnated << ","
+
+                // Logging times
+                 << mutateStrokes_time << "," 
+                 << render_time << "," 
+                 << computeLoss_time << "," 
+                 << minimizeColorError_time << ","
+                 << iteration_time << "\n";
+
+        if ((iter + 1) % 100 == 0) {
+            std::cout << "[Iter " << iter + 1 << "/" << n_iterations << "] "
+                      << "Current Loss: " << current_loss << ", "
+                      << "Best Global Loss: " << best_global_loss << ", "
+                      << "Temperature: " << T << "\n";
+        }
+    }
+    csv_logf.close();
+
+    strokes = best_global_strokes;
+    currentCanvas = best_global_canvas;
+
+    minimizeColorError();
+    render_all();
+    last_time = currentDateTime();
+
+    auto global_end = std::chrono::high_resolution_clock::now();
+    uint64_t total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(global_end - global_start).count();
+    
+    best_global_loss = computeLoss();
+
+    std::string log_path = "output/logs/" + log_file_name + ".txt";
+
+    // Append to log file
+    std::ofstream logf(log_path, std::ios::app);
+
+    logf << "\nTotal optimization time (s): " << total_duration / 1000.0 << "\n";
+    logf << "End time: " << last_time << "\n";
+    logf << "Best loss: " << best_global_loss << ";\n";
+    logf.close();
+}
+
+/**
+ * @brief Mutar los strokes actuales.
+ */
+std::string Model::mutateStrokes() {
+    // Select a random mutation
+    float r = randFloat();
+    std::string mutation_type;
+
+    if (r < mutationWeights[0]) {
+        // Mover stroke
+        int s_idx = randInt(0, n_strokes - 1);
+        Stroke& stroke = strokes[s_idx];
+        stroke.x_rel += randFloat(-0.1f, 0.1f);
+        stroke.y_rel += randFloat(-0.1f, 0.1f);
+        stroke.x_rel = std::clamp(stroke.x_rel, 0.0f, 1.0f);
+        stroke.y_rel = std::clamp(stroke.y_rel, 0.0f, 1.0f);
+
+        mutation_type = "move";
+    } else if (r < mutationWeights[1]) {
+        // Cambiar tamaño
+        int s_idx = randInt(0, n_strokes - 1);
+        Stroke& stroke = strokes[s_idx];
+        stroke.size_rel += randFloat(-0.05f, 0.05f);
+        stroke.size_rel = std::clamp(stroke.size_rel, 0.05f, 0.7f);
+
+        mutation_type = "resize";
+    } else if (r < mutationWeights[2]) {
+        // Cambiar rotación
+        int s_idx = randInt(0, n_strokes - 1);
+        Stroke& stroke = strokes[s_idx];
+        stroke.rotation_deg += randFloat(0.0f, 360.0f);
+        if (stroke.rotation_deg < 0.0f) stroke.rotation_deg += 360.0f;
+        if (stroke.rotation_deg >= 360.0f) stroke.rotation_deg -= 360.0f;
+
+        mutation_type = "rotate";
+    } else if (r < mutationWeights[3]) {
+        // Cambiar tipo de brush
+        int s_idx = randInt(0, n_strokes - 1);
+        Stroke& stroke = strokes[s_idx];
+        stroke.type = randInt(0, (int)gBrushes.size() - 1);
+
+        mutation_type = "change_brush";
+    } else if (r < mutationWeights[4]) {
+        // Cambiar color
+        int s_idx = randInt(0, n_strokes - 1);
+        Stroke& stroke = strokes[s_idx];
+        stroke.r = std::clamp(stroke.r + randFloat(-0.1f, 0.1f), 0.0f, 1.0f);
+        stroke.g = std::clamp(stroke.g + randFloat(-0.1f, 0.1f), 0.0f, 1.0f);
+        stroke.b = std::clamp(stroke.b + randFloat(-0.1f, 0.1f), 0.0f, 1.0f);
+
+        mutation_type = "change_color";
+    } else {
+        // Cambiar orden de los strokes (mirror)
+        int s_idx1 = randInt(0, n_strokes - 1);
+        int s_idx2 = randInt(0, n_strokes - 1);
+        std::swap(strokes[s_idx1], strokes[s_idx2]);
+
+        mutation_type = "swap_strokes";
+    }
+
+    return mutation_type;
+}
