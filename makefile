@@ -32,9 +32,7 @@ compile: all
 # Regla de enlazado: Cómo crear el ejecutable en 'bin/'
 # Depende de todos los archivos .o que están en 'obj/'
 $(TARGET): $(OBJS)
-	# 1. Asegura que la carpeta 'bin/' exista
 	@mkdir -p $(BIN_DIR)
-	# 2. Enlaza los .o para crear el programa
 	$(CXX) $(OBJS) -o $(TARGET)
 
 # --- Reglas de Compilación (Objeto) ---
@@ -62,13 +60,13 @@ clean:
 
 # --- Reglas Especiales ---
 run: $(TARGET)
-	./$(TARGET) $(n) bach.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) dali.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) klimt.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) mona.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) mondriaan.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) pollock.png $(k) $(pixel_threshold) $(p)
-	./$(TARGET) $(n) starrynight.png $(k) $(pixel_threshold) $(p)
+	./$(TARGET) bach.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) dali.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) klimt.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) mona.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) mondriaan.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) pollock.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) starrynight.png $(n) $(k) $(pixel_threshold) $(p)
 
 # Le dice a 'make' que 'all', 'compile' y 'clean' no son
 # nombres de archivos reales, para evitar conflictos.
