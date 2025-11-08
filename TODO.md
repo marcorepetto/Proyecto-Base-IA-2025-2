@@ -77,7 +77,6 @@ Queremos reemplazar esa heurística limitada por una **función de utilidad estr
 | Componente               | Estado actual                             | Modificación                                              |
 | ------------------------ | ----------------------------------------- | --------------------------------------------------------- |
 | Métrica de evaluación    | Basada en cobertura binaria de bordes     | Basada en energía estructural continua (bordes + textura) |
-| Selección de trazos      | Minimiza error por pixel_threshold        | Maximiza reducción de energía estructural                 |
 | Penalización             | Cobertura simple                          | Penalización proporcional a solapamiento                  |
 | Actualización del estado | Incrementa mapa de bordes                 | Reduce energía estructural residual                       |
 | Efecto final             | Pinceladas concentradas en bordes gruesos | Pinceladas adaptadas a estructura global y textura local  |

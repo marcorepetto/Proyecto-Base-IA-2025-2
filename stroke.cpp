@@ -214,7 +214,7 @@ void Stroke::randomize() {
 
     // Random distributions
     std::uniform_real_distribution<float> dist_pos(0.0f, 1.0f);
-    std::uniform_real_distribution<float> dist_size(0.15f, 0.5f);
+    std::uniform_real_distribution<float> dist_size(0.15f, 0.7f);
     std::uniform_real_distribution<float> dist_rot(0.0f, 360.0f);
     std::uniform_int_distribution<int>    dist_type(0, (int)gBrushes.size() - 1);
     std::uniform_real_distribution<float> dist_color(0.0f, 1.0f);

@@ -18,7 +18,6 @@ OBJS = $(OBJ_DIR)/main.o $(OBJ_DIR)/stroke.o $(OBJ_DIR)/model.o
 
 n ?= 125
 k ?= 100
-pixel_threshold ?= 0.1
 p ?= 0.5
 
 # --- Reglas ---
@@ -60,13 +59,13 @@ clean:
 
 # --- Reglas Especiales ---
 run: $(TARGET)
-	./$(TARGET) bach.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) dali.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) klimt.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) mona.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) mondriaan.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) pollock.png $(n) $(k) $(pixel_threshold) $(p)
-	./$(TARGET) starrynight.png $(n) $(k) $(pixel_threshold) $(p)
+	./$(TARGET) bach.png $(n) $(k) $(p)
+	./$(TARGET) dali.png $(n) $(k) $(p)
+	./$(TARGET) klimt.png $(n) $(k) $(p)
+	./$(TARGET) mona.png $(n) $(k) $(p)
+	./$(TARGET) mondriaan.png $(n) $(k) $(p)
+	./$(TARGET) pollock.png $(n) $(k) $(p)
+	./$(TARGET) starrynight.png $(n) $(k) $(p)
 
 # Le dice a 'make' que 'all', 'compile' y 'clean' no son
 # nombres de archivos reales, para evitar conflictos.
