@@ -114,9 +114,9 @@ Model::Model(int n_strokes,
      */
 
     mutationWeights = {
-        3.0f, // Mover stroke
-        1.0f, // Cambiar tamaño
-        3.0f, // Cambiar rotación
+        2.0f, // Mover stroke
+        3.0f, // Cambiar tamaño
+        2.0f, // Cambiar rotación
         0.5f, // Cambiar tipo de brush
         0.2f, // Cambiar color
         0.5f, // Cambiar orden de los strokes (mirror)
@@ -153,31 +153,46 @@ float Model::computeLoss() {
 }
 
 void Model::render_all() {
+    // Clear canvas
     currentCanvas.clear(0, 0, 0);
-    Stroke stroke;
-    
-    for (int y = 0; y < currentCanvas.height; ++y) {
-        for (int x = 0; x < currentCanvas.width; ++x) {
-            float a_factor = 1.0f;
-            for (int i = (int)strokes.size() - 1; i >= 0; --i) {
-                stroke = strokes[i];
-                float a = stroke.strokeAlphas[y * currentCanvas.width + x];
-                if (a <= 0.0f) continue;
+    const int n_pixels = currentCanvas.width * currentCanvas.height;
 
-                // Mezcla alfa simple
-                int idx = (y * currentCanvas.width + x) * 3;
+    // alpha_accum almacena la opacidad restante (1.0 = totalmente transparente aún)
+    std::vector<float> alpha_accum(n_pixels, 1.0f);
 
-                float r_weight = (stroke.r * a * a_factor);
-                float g_weight = (stroke.g * a * a_factor);
-                float b_weight = (stroke.b * a * a_factor);
+    // Acceso más rápido al buffer RGB
+    float* rgb = currentCanvas.rgb.data();
 
-                currentCanvas.rgb[idx + 0] += r_weight;
-                currentCanvas.rgb[idx + 1] += g_weight;
-                currentCanvas.rgb[idx + 2] += b_weight;
+    // Umbral para considerar alfa como "casi cero"
+    const float ALPHA_EPS = 1e-4f;
+    const float ALPHA_STOP = 0.001f;
 
-                a_factor *= (1.0f - a);
-                if (a_factor <= 0.001f) break; // casi opaco, salir
-            }
+    // Recorremos los strokes de atrás hacia adelante (back-to-front compositing)
+    for (int s = (int)strokes.size() - 1; s >= 0; --s) {
+        const Stroke& st = strokes[s];
+        const std::vector<float>& alphas = st.strokeAlphas;
+
+        // Evitar comprobar si tamaños no concuerdan
+        if ((int)alphas.size() != n_pixels) continue;
+
+        // Iterar sólo los píxeles donde el stroke tiene alfa > ALPHA_EPS
+        for (int p = 0; p < n_pixels; ++p) {
+            float a = alphas[p];
+            if (a <= ALPHA_EPS) continue;
+
+            // Si ya está casi opaco, saltamos
+            if (alpha_accum[p] <= ALPHA_STOP) continue;
+
+            int idx = p * 3;
+            float factor = a * alpha_accum[p];
+
+            // Sumar contribución de color
+            rgb[idx + 0] += st.r * factor;
+            rgb[idx + 1] += st.g * factor;
+            rgb[idx + 2] += st.b * factor;
+
+            // Actualizar alpha acumulada
+            alpha_accum[p] *= (1.0f - a);
         }
     }
 }
@@ -433,7 +448,7 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
     std::vector<Stroke> best_global_strokes = strokes;
     Canvas best_global_canvas = currentCanvas;
     int stagnation_counter = 0;
-    const int stagnation_limit = n_iterations / 10;
+    const int stagnation_limit = n_strokes * 100;
     
     // Logging
     std::string csv_log_path = "output/logs/" + log_file_name + ".csv";
@@ -446,6 +461,7 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
             << "Best Global Loss" << "," 
             << "Temperature" << "," 
 
+            << "Mutation type" << ","
             << "Accepted" << "," 
             << "Local improvement" << "," 
             << "Global improvement" << ","
@@ -482,7 +498,9 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
         std::string mutation_type = mutateStrokes();
         auto end = std::chrono::high_resolution_clock::now();
         mutateStrokes_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-
+        
+        csv_logf << mutation_type << ",";
+        
         // Render new canvas
         start = std::chrono::high_resolution_clock::now();
         render_all();
@@ -529,7 +547,7 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
         T *= beta;
 
         // Check for stagnation
-        if (stagnation_counter >= stagnation_limit) {
+        if (stagnation_counter >= stagnation_limit || (new_loss > best_global_loss * 1.5f)) {
             stagnated = true;
 
             strokes = best_global_strokes;
@@ -552,7 +570,6 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
             end = std::chrono::high_resolution_clock::now();
             computeLoss_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
-            stagnation_counter = 0;
 
             T = T_initial * std::pow(alpha, iter); // Reset temperature based on iteration
             beta = std::pow(T_final_global / T, 1.0f / (n_iterations - iter)); // Adjust beta for remaining iterations
@@ -570,6 +587,17 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
                     best_global_canvas = currentCanvas;
                 }
             }
+            std::cout << "[STAGNATION RESTART at iter " << iter + 1 << "] ";
+            if (stagnation_counter < stagnation_limit) {
+                std::cout << "High loss detected. ";
+            } else {
+                std::cout << "Stagnation counter reached limit of " << stagnation_limit << ". ";
+            }
+            std::cout << "Current Loss: " << current_loss << ", "
+                      << "Best Global Loss: " << best_global_loss << ", "
+                      << "Temperature reset to: " << T << "\n";
+
+            stagnation_counter = 0;
         }
         
         auto iteration_end = std::chrono::high_resolution_clock::now();
@@ -588,7 +616,9 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
                  << iteration_time << "\n";
 
         if ((iter + 1) % 100 == 0) {
-            std::cout << "[Iter " << iter + 1 << "/" << n_iterations << "] "
+            std::cout << "[Iter " << iter + 1 << "/" << n_iterations 
+                      << " (" << (iter+1)/(float)n_iterations * 100.0f 
+                      << ")] "
                       << "Current Loss: " << current_loss << ", "
                       << "Best Global Loss: " << best_global_loss << ", "
                       << "Temperature: " << T << "\n";
