@@ -114,12 +114,11 @@ Model::Model(int n_strokes,
      */
 
     mutationWeights = {
-        2.0f, // Mover stroke
-        3.0f, // Cambiar tamaño
-        2.0f, // Cambiar rotación
-        0.5f, // Cambiar tipo de brush
-        0.2f, // Cambiar color
-        0.5f, // Cambiar orden de los strokes (mirror)
+        4.0f, // Mover stroke
+        2.0f, // Cambiar tamaño
+        3.0f, // Cambiar rotación
+        0.5f, // Cambiar color
+        1.5f, // Cambiar orden de los strokes (mirror)
     };
 
     float totalWeight = 0.0f;
@@ -379,7 +378,6 @@ void Model::initialGuess() {
 
         for (int j = 0; j < n_sample_greedy; ++j) {
             stroke.randomize();
-            
             stroke.draw(currentCanvas); // This is needed to compute strokeAlphas
 
             float gain = 0.0f;
@@ -430,18 +428,13 @@ void Model::initialGuess() {
 
 void Model::optimizeSimulatedAnnealing(int n_iterations) {
     auto global_start = std::chrono::high_resolution_clock::now();
-    // Simulated annealing variables
     float current_loss = computeLoss();
     std::vector<Stroke> prev_strokes;
     Canvas prev_canvas = currentCanvas;
 
-    // Initial temperature defined by max_loss
-    float T_initial = max_loss;
-    float T_final_control = 300.0f;
-    float T_final_global = 0.1f;
-    float T = T_initial;
-    float alpha = std::pow(T_initial / T_final_control, 1.0f / n_iterations);
-    float beta = std::pow(T_initial / T_final_global, 1.0f / n_iterations);
+    float c = 0.001f;
+    float T = c/std::log(1.0f);
+
 
     // Restart variables
     float best_global_loss = current_loss;
@@ -543,11 +536,12 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
             csv_logf << false << ",";
         }
 
-        // Update temperature
-        T *= beta;
+        T = c / std::log(iter + 1.0f); // +2 to avoid log(1)=0
 
         // Check for stagnation
-        if (stagnation_counter >= stagnation_limit || (new_loss > best_global_loss * 1.5f)) {
+        //if (stagnation_counter >= stagnation_limit ||
+        //     ((new_loss > best_global_loss * 1.5f) && stagnation_counter > n_strokes*10)) {
+        if (stagnation_counter >= stagnation_limit) {
             stagnated = true;
 
             strokes = best_global_strokes;
@@ -569,10 +563,6 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
             float new_loss = computeLoss();
             end = std::chrono::high_resolution_clock::now();
             computeLoss_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-
-
-            T = T_initial * std::pow(alpha, iter); // Reset temperature based on iteration
-            beta = std::pow(T_final_global / T, 1.0f / (n_iterations - iter)); // Adjust beta for remaining iterations
 
             if (new_loss < current_loss) {
                 current_loss = new_loss;
@@ -661,19 +651,22 @@ std::string Model::mutateStrokes() {
         // Mover stroke
         int s_idx = randInt(0, n_strokes - 1);
         Stroke& stroke = strokes[s_idx];
-        stroke.x_rel += randFloat(-0.1f, 0.1f);
-        stroke.y_rel += randFloat(-0.1f, 0.1f);
+        stroke.x_rel += randFloat(-0.15f, 0.15f);
+        stroke.y_rel += randFloat(-0.15f, 0.15f);
         stroke.x_rel = std::clamp(stroke.x_rel, 0.0f, 1.0f);
         stroke.y_rel = std::clamp(stroke.y_rel, 0.0f, 1.0f);
+
+        stroke.draw(currentCanvas);
 
         mutation_type = "move";
     } else if (r < mutationWeights[1]) {
         // Cambiar tamaño
         int s_idx = randInt(0, n_strokes - 1);
         Stroke& stroke = strokes[s_idx];
-        stroke.size_rel += randFloat(-0.05f, 0.05f);
+        stroke.size_rel += randFloat(-0.1f, 0.1f);
         stroke.size_rel = std::clamp(stroke.size_rel, 0.05f, 0.7f);
 
+        stroke.draw(currentCanvas);
         mutation_type = "resize";
     } else if (r < mutationWeights[2]) {
         // Cambiar rotación
@@ -683,15 +676,9 @@ std::string Model::mutateStrokes() {
         if (stroke.rotation_deg < 0.0f) stroke.rotation_deg += 360.0f;
         if (stroke.rotation_deg >= 360.0f) stroke.rotation_deg -= 360.0f;
 
+        stroke.draw(currentCanvas);
         mutation_type = "rotate";
     } else if (r < mutationWeights[3]) {
-        // Cambiar tipo de brush
-        int s_idx = randInt(0, n_strokes - 1);
-        Stroke& stroke = strokes[s_idx];
-        stroke.type = randInt(0, (int)gBrushes.size() - 1);
-
-        mutation_type = "change_brush";
-    } else if (r < mutationWeights[4]) {
         // Cambiar color
         int s_idx = randInt(0, n_strokes - 1);
         Stroke& stroke = strokes[s_idx];
