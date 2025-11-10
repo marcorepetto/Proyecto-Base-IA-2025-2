@@ -58,13 +58,20 @@ clean:
 	@rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # --- Reglas Especiales ---
-run_mondriaan: $(TARGET)
-	./$(TARGET) mondriaan.png 3 1000 0.5
-	./$(TARGET) mondriaan.png 25 1000 0.5
-	./$(TARGET) mondriaan.png 75 1000 0.5
-	./$(TARGET) mondriaan.png 125 1000 0.5
-	./$(TARGET) mondriaan.png 200 1000 0.5
+run: $(TARGET)
+	./$(TARGET) bach.png 200 1000 0.5
+	./$(TARGET) dali.png 200 1000 0.5
+	./$(TARGET) klimt.png 200 1000 0.5
+	./$(TARGET) mona.png 200 1000 0.5
+	./$(TARGET) pollock.png 200 1000 0.5
+	./$(TARGET) starrynight.png 200 1000 0.5
 	./$(TARGET) mondriaan.png 250 1000 0.5
+	./$(TARGET) bach.png 250 1000 0.5
+	./$(TARGET) dali.png 250 1000 0.5
+	./$(TARGET) klimt.png 250 1000 0.5
+	./$(TARGET) mona.png 250 1000 0.5
+	./$(TARGET) pollock.png 250 1000 0.5
+	./$(TARGET) starrynight.png 250 1000 0.5
 
 run_mona: $(TARGET)
 	./$(TARGET) mona.png 3 1000 0.5
@@ -77,4 +84,4 @@ run_mona: $(TARGET)
 
 # Le dice a 'make' que 'all', 'compile' y 'clean' no son
 # nombres de archivos reales, para evitar conflictos.
-.PHONY: all compile clean run
+.PHONY: all compile clean run_mona run_mondriaan
