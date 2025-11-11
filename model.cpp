@@ -109,8 +109,7 @@ Model::Model(int n_strokes,
      * Cambiar rotación
      * Cambiar tipo de brush
      * Cambiar color
-     * Cambiar orden de los strokes (mirror)
-     * Cambiar varios atributos a la vez
+     * Cambiar orden de los strokes
      */
 
     mutationWeights = {
@@ -118,7 +117,7 @@ Model::Model(int n_strokes,
         2.0f, // Cambiar tamaño
         3.0f, // Cambiar rotación
         0.5f, // Cambiar color
-        1.5f, // Cambiar orden de los strokes (mirror)
+        1.5f, // Cambiar orden de los strokes
     };
 
     float totalWeight = 0.0f;
@@ -197,87 +196,79 @@ void Model::render_all() {
 }
 
 void Model::minimizeColorError() {
-    // Minimizar error **POR COLOR** para cada stroke en conjunto mediante minimos cuadrados
-    Eigen::MatrixXf A(currentCanvas.width * currentCanvas.height, n_strokes);
-    Eigen::VectorXf b_r(currentCanvas.width * currentCanvas.height);
-    Eigen::VectorXf b_g(currentCanvas.width * currentCanvas.height);
-    Eigen::VectorXf b_b(currentCanvas.width * currentCanvas.height);
-    A.setZero();
-    b_r.setZero();
-    b_g.setZero();
-    b_b.setZero();
+    const int n = n_strokes;
+    const int W = currentCanvas.width;
+    const int H = currentCanvas.height;
+    const int n_pixels = W * H;
 
-    // std::cout << "Construyendo sistema de ecuaciones para mínimos cuadrados...\n";
-    for (int y = 0; y < currentCanvas.height; ++y) {
-        // std::cout << "  Procesando fila " << y+1 << " de " << currentCanvas.height << "...\n";
-        for (int x = 0; x < currentCanvas.width; ++x) {
-            // Fill A
-            float alpha_accum = 1.0f;
-            for (int i = (int)strokes.size() - 1; i >= 0; --i) {
-                const Stroke& stroke = strokes[i];
-                float a = stroke.strokeAlphas[y * currentCanvas.width + x];
-                A(y * currentCanvas.width + x, i) = a * alpha_accum;
-                alpha_accum *= (1.0f - a);
+    // Small dense normal system: AtA (nxn) y Atb (n)
+    Eigen::MatrixXf AtA = Eigen::MatrixXf::Zero(n, n);
+    Eigen::VectorXf Atb_r = Eigen::VectorXf::Zero(n);
+    Eigen::VectorXf Atb_g = Eigen::VectorXf::Zero(n);
+    Eigen::VectorXf Atb_b = Eigen::VectorXf::Zero(n);
+
+    // Temp buffer para alfas por stroke en un píxel
+    std::vector<float> a(n);
+
+    const float ALPHA_EPS = 1e-8f;
+
+    // Acumular AtA y Atb iterando píxeles
+    for (int pix = 0; pix < n_pixels; ++pix) {
+        // calcular contributions a_i = stroke_alpha * alpha_accum (back-to-front)
+        float alpha_acc = 1.0f;
+        bool any_nonzero = false;
+        for (int i = n - 1; i >= 0; --i) {
+            float ai = strokes[i].strokeAlphas[pix] * alpha_acc;
+            a[i] = ai;
+            if (ai > ALPHA_EPS) any_nonzero = true;
+            alpha_acc *= (1.0f - strokes[i].strokeAlphas[pix]);
+            if (alpha_acc <= 0.0f) alpha_acc = 0.0f;
+        }
+        if (!any_nonzero) continue;
+
+        // obtener target RGB
+        int idx_rgb = pix * 3;
+        float tr = targetImage.rgb[idx_rgb + 0];
+        float tg = targetImage.rgb[idx_rgb + 1];
+        float tb = targetImage.rgb[idx_rgb + 2];
+
+        // llenar triángulo superior de AtA y Atb
+        for (int i = 0; i < n; ++i) {
+            float ai = a[i];
+            if (ai <= ALPHA_EPS) continue;
+            Atb_r(i) += ai * tr;
+            Atb_g(i) += ai * tg;
+            Atb_b(i) += ai * tb;
+            for (int j = i; j < n; ++j) {
+                float aj = a[j];
+                if (aj <= ALPHA_EPS) continue;
+                AtA(i, j) += ai * aj;
             }
-
-            // Fill b
-            int idx = (y * currentCanvas.width + x) * 3;
-            b_r(y * currentCanvas.width + x) = targetImage.rgb[idx + 0];
-            b_g(y * currentCanvas.width + x) = targetImage.rgb[idx + 1];
-            b_b(y * currentCanvas.width + x) = targetImage.rgb[idx + 2];
         }
     }
-    // std::cout << "Sistema construido: A es " << A.rows() << "x" << A.cols() << "\n\nRealizando descomposición QR de A (" << A.rows() << "x" << A.cols() << ")... ";
 
-    // QR decomposition to solve for r, g, b. Compute QR = A once and reuse.
-    // auto start = std::chrono::high_resolution_clock::now();
+    // Simetrizar AtA (copiar triángulo superior al inferior)
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < i; ++j)
+            AtA(i, j) = AtA(j, i);
 
-    Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A);
+    // Regularización pequeña para estabilidad numérica
+    const float lambda = 1e-6f;
+    AtA.diagonal().array() += lambda;
 
-    // auto end = std::chrono::high_resolution_clock::now();
-    // Save seconds duration
-    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    // std::cout << "hecho en " << duration / 1000000.0 << " s.\n";
+    // Resolver sistemas (nxn) para cada canal usando LDLT (estable y rápido para matrices pequeñas)
+    Eigen::LDLT<Eigen::MatrixXf> solver(AtA);
+    if (solver.info() != Eigen::Success) {
+        std::cerr << "minimizeColorError: fallo en la factorizacion LDLT\n";
+        return;
+    }
 
-    // std::cout << "Resolviendo para canales R, G, B...\n";
-    // start = std::chrono::high_resolution_clock::now();
-    // std::cout << "  Canal R... ";
-    Eigen::VectorXf x_r = qr.solve(b_r);
-    // std::cout << "Listo!\n  Canal G... ";
-    Eigen::VectorXf x_g = qr.solve(b_g);
-    // std::cout << "Listo!\n  Canal B... ";
-    Eigen::VectorXf x_b = qr.solve(b_b);
-    // end = std::chrono::high_resolution_clock::now();
-    // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    // std::cout << "Listo!\nHecho en " << duration / 1000000.0 << " s.\n";
+    Eigen::VectorXf x_r = solver.solve(Atb_r);
+    Eigen::VectorXf x_g = solver.solve(Atb_g);
+    Eigen::VectorXf x_b = solver.solve(Atb_b);
 
-    /*
-    std::cout << "Matrix A:\n" << A << "\n";
-    std::cout << "Vector b_r:\n" << b_r << "\n";
-    std::cout << "Vector b_g:\n" << b_g << "\n";
-    std::cout << "Vector b_b:\n" << b_b << "\n";
-
-    std::cout << "Initial guess colors computed via least squares.\n";
-    std::cout << "Red channel approximation using x_r (then real values):\n" 
-        << x_r.transpose() << "\n" 
-        << (A*x_r).transpose() << "\n" 
-        << b_r.transpose() << "\n";
-    std::cout << "Green channel approximation using x_g (then real values):\n" 
-        << x_g.transpose() << "\n" 
-        << b_g.transpose() << "\n";
-    std::cout << "Blue channel approximation using x_b (then real values):\n" 
-        << x_b.transpose() << "\n" 
-        << (A*x_b).transpose() << "\n" 
-        << b_b.transpose() << "\n";
-
-    std::cout << "Colors:\n" 
-        << x_r.transpose() << "\n" 
-        << x_g.transpose() << "\n" 
-        << x_b.transpose() << "\n";
-    */
-
-    // Update stroke colors
-    for (int i = 0; i < n_strokes; ++i) {
+    // Aplicar y clampear colores a [0,1]
+    for (int i = 0; i < n; ++i) {
         strokes[i].r = std::clamp(x_r(i), 0.0f, 1.0f);
         strokes[i].g = std::clamp(x_g(i), 0.0f, 1.0f);
         strokes[i].b = std::clamp(x_b(i), 0.0f, 1.0f);
@@ -378,7 +369,7 @@ void Model::initialGuess() {
 
         for (int j = 0; j < n_sample_greedy; ++j) {
             stroke.randomize();
-            stroke.draw(currentCanvas); // This is needed to compute strokeAlphas
+            stroke.draw(currentCanvas);
 
             float gain = 0.0f;
             float penalty = 0.0f;

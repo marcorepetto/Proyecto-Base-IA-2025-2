@@ -1,0 +1,10 @@
+Model initialization log
+========================
+Log file name: dali/200/2025-11-10 21:52:53
+Target filename: dali.png
+Target name (no ext): dali
+Number of strokes: 200
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 7.84205
+Initial loss: 0.0763096

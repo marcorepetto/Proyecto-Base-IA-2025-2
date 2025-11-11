@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: pollock/200/2025-11-09 06:26:55
+Target filename: pollock.png
+Target name (no ext): pollock
+Number of strokes: 200
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 8.55473
+Initial loss: 0.163492
+
+Total optimization time (s): 2850.84
+End time: 2025-11-09 07:14:34
+Best loss: 0.107427;

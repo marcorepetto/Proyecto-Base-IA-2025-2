@@ -6,14 +6,14 @@
 #include <chrono>
 #include <cstdlib>
 
+/**
+ * @brief Función principal del programa.
+ * @param filename Nombre del archivo de la imagen objetivo.
+ * @param n Número de strokes a utilizar.
+ * @param n_sample_greedy Número de muestras aleatorias por stroke para la inicialización
+ * @param p Peso del borde respecto al área cubierta en la inicialización.
+ */
 int main(int argc, char** argv) {
-    // Leer parámetro 
-    //      n: cantidad de brushes a generar
-    //      filename: imagen objetivo
-    //      n_sample_greedy: cantidad de muestras aleatorias por brush
-    //      : umbral de borde
-    //      p: peso de borde respecto a área cubierta
-    //      
     std::string target_filename = argv[1];
     int n = std::stoi(argv[2]);
     int n_sample_greedy = std::stoi(argv[3]);

@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: mondriaan/3/2025-11-09 01:49:05
+Target filename: mondriaan.png
+Target name (no ext): mondriaan
+Number of strokes: 3
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 0.121242
+Initial loss: 1.42195
+
+Total optimization time (s): 197.178
+End time: 2025-11-09 01:52:22
+Best loss: 0.907661;

@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: klimt/200/2025-11-09 04:51:03
+Target filename: klimt.png
+Target name (no ext): klimt
+Number of strokes: 200
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 8.55903
+Initial loss: 0.0752069
+
+Total optimization time (s): 2889.52
+End time: 2025-11-09 05:39:21
+Best loss: 0.0341705;

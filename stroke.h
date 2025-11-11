@@ -28,12 +28,12 @@ bool savePNG(const Canvas& C, const std::string& filename);
 // ================= Stroke =================
 class Stroke {
 public:
-    float x_rel = 0.5f;
-    float y_rel = 0.5f;
-    float size_rel = 0.2f;
-    float rotation_deg = 0.0f;
-    int   type = 0;
-    float r = 0, g = 0, b = 0;
+    float x_rel = 0.5f;             // posición relativa [0,1]
+    float y_rel = 0.5f;             // posición relativa [0,1]
+    float size_rel = 0.2f;          // tamaño relativo [0,1]
+    float rotation_deg = 0.0f;      // rotación en grados [0,360)
+    int   type = 0;                 // tipo de brush (índice en gBrushes)
+    float r = 0, g = 0, b = 0;      // color del stroke [0,1]
     std::vector<float> strokeAlphas;
 
     Stroke() = default;

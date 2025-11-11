@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: bach/200/2025-11-09 03:15:17
+Target filename: bach.png
+Target name (no ext): bach
+Number of strokes: 200
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 8.57164
+Initial loss: 0.0566415
+
+Total optimization time (s): 2846.09
+End time: 2025-11-09 04:02:52
+Best loss: 0.0140859;

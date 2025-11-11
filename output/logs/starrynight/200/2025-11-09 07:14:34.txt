@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: starrynight/200/2025-11-09 07:14:34
+Target filename: starrynight.png
+Target name (no ext): starrynight
+Number of strokes: 200
+n_sample_greedy: 1000
+p: 0.5
+Initial guess time (s): 8.57273
+Initial loss: 0.0415006
+
+Total optimization time (s): 2879.22
+End time: 2025-11-09 08:02:42
+Best loss: 0.0256734;
