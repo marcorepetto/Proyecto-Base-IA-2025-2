@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    model.optimizeSimulatedAnnealing(1000000);
+    model.optimizeSimulatedAnnealing(10000);
 
     output_filename = model.log_file_name + "_finalResult.png";
     if (!savePNG(model.getCurrentCanvas(), "output/images/" + output_filename)) {

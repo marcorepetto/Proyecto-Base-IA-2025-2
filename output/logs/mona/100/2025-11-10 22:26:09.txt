@@ -1,0 +1,14 @@
+Model initialization log
+========================
+Log file name: mona/100/2025-11-10 22:26:09
+Target filename: mona.png
+Target name (no ext): mona
+Number of strokes: 100
+n_sample_greedy: 250
+p: 0.5
+Initial guess time (s): 1.01217
+Initial loss: 0.0718125
+
+Total optimization time (s): 15.223
+End time: 2025-11-10 22:26:25
+Best loss: 0.0207235;

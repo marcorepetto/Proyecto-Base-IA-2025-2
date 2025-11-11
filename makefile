@@ -59,7 +59,7 @@ clean:
 
 # --- Reglas Especiales ---
 run: $(TARGET)
-	./$(TARGET) mona.png 25 250 0.5
+	./$(TARGET) mona.png 100 250 0.5
 	./$(TARGET) bach.png 200 1000 0.5
 	./$(TARGET) dali.png 200 1000 0.5
 	./$(TARGET) klimt.png 200 1000 0.5
