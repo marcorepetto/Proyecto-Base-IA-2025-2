@@ -32,6 +32,8 @@ private:
     float computeLoss();
 
     std::string mutateStrokes();
+
+    void log_strokes();
 public:
     Model(int n_strokes = 10, 
         const std::string& target_filename = "mona.png",

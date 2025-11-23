@@ -129,7 +129,6 @@ Model::Model(int n_strokes,
     start_time = currentDateTime();
     std::cout << "Model initialized. Start time: " << start_time << "\n";
 
-    // Create folder {images,logs}/{target_name}/ if not exists
     std::string command = "mkdir -p output/{images,logs}/" + target_name + "/" + std::to_string(n_strokes);
     system(command.c_str());
 
@@ -196,79 +195,40 @@ void Model::render_all() {
 }
 
 void Model::minimizeColorError() {
-    const int n = n_strokes;
-    const int W = currentCanvas.width;
-    const int H = currentCanvas.height;
-    const int n_pixels = W * H;
+    Eigen::MatrixXf A(currentCanvas.width * currentCanvas.height, n_strokes);
+    Eigen::VectorXf b_r(currentCanvas.width * currentCanvas.height);
+    Eigen::VectorXf b_g(currentCanvas.width * currentCanvas.height);
+    Eigen::VectorXf b_b(currentCanvas.width * currentCanvas.height);
+    A.setZero();
+    b_r.setZero();
+    b_g.setZero();
+    b_b.setZero();
 
-    // Small dense normal system: AtA (nxn) y Atb (n)
-    Eigen::MatrixXf AtA = Eigen::MatrixXf::Zero(n, n);
-    Eigen::VectorXf Atb_r = Eigen::VectorXf::Zero(n);
-    Eigen::VectorXf Atb_g = Eigen::VectorXf::Zero(n);
-    Eigen::VectorXf Atb_b = Eigen::VectorXf::Zero(n);
-
-    // Temp buffer para alfas por stroke en un píxel
-    std::vector<float> a(n);
-
-    const float ALPHA_EPS = 1e-8f;
-
-    // Acumular AtA y Atb iterando píxeles
-    for (int pix = 0; pix < n_pixels; ++pix) {
-        // calcular contributions a_i = stroke_alpha * alpha_accum (back-to-front)
-        float alpha_acc = 1.0f;
-        bool any_nonzero = false;
-        for (int i = n - 1; i >= 0; --i) {
-            float ai = strokes[i].strokeAlphas[pix] * alpha_acc;
-            a[i] = ai;
-            if (ai > ALPHA_EPS) any_nonzero = true;
-            alpha_acc *= (1.0f - strokes[i].strokeAlphas[pix]);
-            if (alpha_acc <= 0.0f) alpha_acc = 0.0f;
-        }
-        if (!any_nonzero) continue;
-
-        // obtener target RGB
-        int idx_rgb = pix * 3;
-        float tr = targetImage.rgb[idx_rgb + 0];
-        float tg = targetImage.rgb[idx_rgb + 1];
-        float tb = targetImage.rgb[idx_rgb + 2];
-
-        // llenar triángulo superior de AtA y Atb
-        for (int i = 0; i < n; ++i) {
-            float ai = a[i];
-            if (ai <= ALPHA_EPS) continue;
-            Atb_r(i) += ai * tr;
-            Atb_g(i) += ai * tg;
-            Atb_b(i) += ai * tb;
-            for (int j = i; j < n; ++j) {
-                float aj = a[j];
-                if (aj <= ALPHA_EPS) continue;
-                AtA(i, j) += ai * aj;
+    for (int y = 0; y < currentCanvas.height; ++y) {
+        for (int x = 0; x < currentCanvas.width; ++x) {
+            float alpha_accum = 1.0f;
+            for (int i = (int)strokes.size() - 1; i >= 0; --i) {
+                const Stroke& stroke = strokes[i];
+                float a = stroke.strokeAlphas[y * currentCanvas.width + x];
+                A(y * currentCanvas.width + x, i) = a * alpha_accum;
+                alpha_accum *= (1.0f - a);
             }
+
+            int idx = (y * currentCanvas.width + x) * 3;
+            b_r(y * currentCanvas.width + x) = targetImage.rgb[idx + 0];
+            b_g(y * currentCanvas.width + x) = targetImage.rgb[idx + 1];
+            b_b(y * currentCanvas.width + x) = targetImage.rgb[idx + 2];
         }
     }
 
-    // Simetrizar AtA (copiar triángulo superior al inferior)
-    for (int i = 0; i < n; ++i)
-        for (int j = 0; j < i; ++j)
-            AtA(i, j) = AtA(j, i);
+    Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A);
 
-    // Regularización pequeña para estabilidad numérica
-    const float lambda = 1e-6f;
-    AtA.diagonal().array() += lambda;
+    Eigen::VectorXf x_r = qr.solve(b_r);
+    Eigen::VectorXf x_g = qr.solve(b_g);
+    Eigen::VectorXf x_b = qr.solve(b_b);
 
-    // Resolver sistemas (nxn) para cada canal usando LDLT (estable y rápido para matrices pequeñas)
-    Eigen::LDLT<Eigen::MatrixXf> solver(AtA);
-    if (solver.info() != Eigen::Success) {
-        std::cerr << "minimizeColorError: fallo en la factorizacion LDLT\n";
-        return;
-    }
-
-    Eigen::VectorXf x_r = solver.solve(Atb_r);
-    Eigen::VectorXf x_g = solver.solve(Atb_g);
-    Eigen::VectorXf x_b = solver.solve(Atb_b);
-
-    // Aplicar y clampear colores a [0,1]
-    for (int i = 0; i < n; ++i) {
+    // Update stroke colors
+    for (int i = 0; i < n_strokes; ++i) {
         strokes[i].r = std::clamp(x_r(i), 0.0f, 1.0f);
         strokes[i].g = std::clamp(x_g(i), 0.0f, 1.0f);
         strokes[i].b = std::clamp(x_b(i), 0.0f, 1.0f);
@@ -432,7 +392,7 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
     std::vector<Stroke> best_global_strokes = strokes;
     Canvas best_global_canvas = currentCanvas;
     int stagnation_counter = 0;
-    const int stagnation_limit = n_strokes * 100;
+    const int stagnation_limit = n_iterations/30; // e.g. 3% de las iteraciones
     
     // Logging
     std::string csv_log_path = "output/logs/" + log_file_name + ".csv";
@@ -527,7 +487,7 @@ void Model::optimizeSimulatedAnnealing(int n_iterations) {
             csv_logf << false << ",";
         }
 
-        T = c / std::log(iter + 1.0f); // +2 to avoid log(1)=0
+        T = c / std::log(iter + 1.0f);
 
         // Check for stagnation
         //if (stagnation_counter >= stagnation_limit ||
@@ -688,4 +648,34 @@ std::string Model::mutateStrokes() {
     }
 
     return mutation_type;
+}
+
+
+void Model::log_strokes() {
+    std::string strokes_log_path = "output/logs/" + log_file_name + "_strokes.csv";
+    std::ofstream strokes_logf(strokes_log_path);
+
+    strokes_logf << "Stroke Index" << ","
+                  << "x_rel" << ","
+                  << "y_rel" << ","
+                  << "size_rel" << ","
+                  << "rotation_deg" << ","
+                  << "type" << ","
+                  << "r" << ","
+                  << "g" << ","
+                  << "b" << "\n";
+
+    for (size_t i = 0; i < strokes.size(); ++i) {
+        const Stroke& st = strokes[i];
+        strokes_logf << i << ","
+                      << st.x_rel << ","
+                      << st.y_rel << ","
+                      << st.size_rel << ","
+                      << st.rotation_deg << ","
+                      << st.type << ","
+                      << st.r << ","
+                      << st.g << ","
+                      << st.b << "\n";
+    }
+    strokes_logf.close();
 }
